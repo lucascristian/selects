@@ -1,0 +1,21 @@
+# Python cache files (created automatically when code runs)
+__pycache__/
+*.pyc
+
+# Virtual environment (recreated from requirements, never committed)
+.venv/
+
+# macOS system files
+.DS_Store
+
+# Video files: large and private, never committed
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.mxf
+*.MXF
+
+# Generated data and results
+data/
+outputs/
