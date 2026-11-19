@@ -36,3 +36,15 @@ def get_fps(stream: dict) -> float:
     """Return the frame rate of a stream as a number, e.g. "25/1" -> 25.0."""
     numerator, denominator = stream["r_frame_rate"].split("/")
     return float(numerator) / float(denominator)
+
+
+def get_rotation(stream: dict) -> int:
+    """Return how many degrees the player must rotate the video (0 if not rotated).
+
+    A camera held vertically still records a landscape frame (e.g. 3840x2160)
+    and stores a rotation tag such as -90 so players show it upright.
+    """
+    for side_data in stream.get("side_data_list", []):
+        if "rotation" in side_data:
+            return int(side_data["rotation"])
+    return 0

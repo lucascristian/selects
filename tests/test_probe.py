@@ -2,7 +2,7 @@
 
 import pytest
 
-from selects.probe import get_duration, get_fps, get_video_stream
+from selects.probe import get_duration, get_fps, get_rotation, get_video_stream
 
 
 def test_get_duration_converts_text_to_float():
@@ -34,3 +34,12 @@ def test_get_fps_with_whole_number_rate():
 def test_get_fps_with_fractional_rate():
     stream = {"r_frame_rate": "30000/1001"}
     assert get_fps(stream) == pytest.approx(29.97, abs=0.01)
+
+
+def test_get_rotation_reads_vertical_clip():
+    stream = {"side_data_list": [{"rotation": -90}]}
+    assert get_rotation(stream) == -90
+
+
+def test_get_rotation_is_zero_when_not_rotated():
+    assert get_rotation({}) == 0
