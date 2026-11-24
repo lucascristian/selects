@@ -1,8 +1,10 @@
 """Tests for selects.database."""
 
+import math
 from datetime import datetime
 
-from selects.database import connect, save_clips
+from selects.best_segment import Pick
+from selects.database import connect, save_clips, save_pick, save_signals
 
 
 def make_record(path: str, duration_s: float, is_log: bool) -> dict:
@@ -47,3 +49,17 @@ def test_scanning_the_same_clip_twice_replaces_it():
     rows = con.execute("SELECT duration_s FROM clips").fetchall()
 
     assert rows == [(30.0,)]
+
+
+def test_signals_and_picks_are_saved(tmp_path):
+    con = connect(tmp_path / "test.duckdb")
+    signals = {name: [1.0, 2.0] for name in
+               ["sharpness", "brightness", "highlights", "shadows", "motion", "shake"]}
+    signals["shake"] = [math.nan, 0.2]
+    save_signals(con, "/clips/A.MP4", signals)
+    save_signals(con, "/clips/A.MP4", signals)  # running twice must not duplicate rows
+    save_pick(con, "/clips/A.MP4", Pick(1, 2, 0.9, ["1-2 s kept"]))
+
+    rows = con.execute("SELECT second, shake FROM signals ORDER BY second").fetchall()
+    assert rows == [(0, None), (1, 0.2)]
+    assert con.execute("SELECT start_s, end_s, reasons FROM picks").fetchone() == (1, 2, ["1-2 s kept"])
