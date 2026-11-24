@@ -4,7 +4,7 @@ Commands:
     scan FOLDER   read every clip in FOLDER and save it to the catalog
     proxies       make an analysis proxy for every clip in the catalog
     report        print a short summary of the catalog
-    signals       print per-second sharpness of every proxy next to your labels
+    signals       print per-second sharpness and exposure next to your labels
 """
 
 import argparse
@@ -15,7 +15,7 @@ from selects.catalog import scan_folder
 from selects.database import connect, save_clips, save_proxy
 from selects.labels import load_labels
 from selects.proxies import DEFAULT_SONY_LUT, make_proxy, proxy_path_for
-from selects.signals import measure_sharpness
+from selects.signals import measure_signals
 
 DEFAULT_DB = Path("data/selects.duckdb")
 DEFAULT_PROXIES_DIR = Path("data/proxies")
@@ -109,17 +109,21 @@ def run_signals(con, labels_path: Path, only: str | None) -> None:
         if only and only not in file_name:
             continue
         label = labels.get(file_name)
-        values = measure_sharpness(Path(proxy_path))
-        top = max(values) or 1.0
+        signals = measure_signals(Path(proxy_path))
+        top = max(signals["sharpness"]) or 1.0
 
         print(f"\n{file_name}   {describe_label(label)}")
-        print(f"  sharpness per second (bar = share of this clip's sharpest second)")
-        for second, value in enumerate(values):
+        print(f"  {'sec':>4}  {'sharpness (vs sharpest second)':<{BAR_WIDTH + 10}}"
+              f"{'bright':>7}{'white%':>8}{'black%':>8}")
+        for second, value in enumerate(signals["sharpness"]):
             bar = "#" * round(BAR_WIDTH * value / top)
             in_pick = (label is not None and label.usable
                        and second < label.end_s and second + 1 > label.start_s)
             mark = "  <- your pick" if in_pick else ""
-            print(f"  {second:3d}s  {bar:<{BAR_WIDTH}}  {value:8.1f}{mark}")
+            print(f"  {second:3d}s  {bar:<{BAR_WIDTH}}  {value:8.1f}"
+                  f"{signals['brightness'][second]:7.0f}"
+                  f"{signals['highlights'][second]:8.1f}"
+                  f"{signals['shadows'][second]:8.1f}{mark}")
 
 
 def main() -> None:
@@ -132,7 +136,7 @@ def main() -> None:
     proxies = commands.add_parser("proxies", help="make analysis proxies for all clips")
     proxies.add_argument("--out", type=Path, default=DEFAULT_PROXIES_DIR)
     commands.add_parser("report", help="print a summary of the catalog")
-    signals = commands.add_parser("signals", help="print per-second sharpness next to your labels")
+    signals = commands.add_parser("signals", help="print per-second signals next to your labels")
     signals.add_argument("clip", nargs="?", help="only clips whose name contains this text")
     signals.add_argument("--labels", type=Path, default=DEFAULT_LABELS)
 

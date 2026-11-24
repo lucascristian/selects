@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import pytest
 
-from selects.signals import measure_sharpness, per_second, read_gray_frames, sharpness
+from selects.signals import exposure, measure_signals, per_second, read_gray_frames, sharpness
 
 
 def checkerboard(size: int = 120, square: int = 10) -> np.ndarray:
@@ -41,9 +41,27 @@ def test_read_gray_frames_gives_times_from_fps(tmp_path):
     assert len(frames) == 25
     assert frames[0][1].shape == (48, 64)
     assert frames[12][0] == pytest.approx(1.2)
-    assert len(measure_sharpness(video)) == 3
+    signals = measure_signals(video)
+    assert set(signals) == {"sharpness", "brightness", "highlights", "shadows"}
+    assert all(len(values) == 3 for values in signals.values())
+    assert signals["shadows"] == [100.0, 100.0, 100.0]  # the test video is all black
 
 
 def test_missing_video_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         list(read_gray_frames(tmp_path / "missing.mp4"))
+
+
+def test_exposure_of_mid_grey_has_no_clipping():
+    grey = np.full((10, 10), 128, dtype=np.uint8)
+    assert exposure(grey) == (128.0, 0.0, 0.0)
+
+
+def test_exposure_counts_blown_and_crushed_pixels():
+    frame = np.full((10, 10), 128, dtype=np.uint8)
+    frame[:2] = 255  # 2 of 10 rows pure white -> 20 %
+    frame[-1] = 0    # 1 of 10 rows pure black -> 10 %
+    mean, highlights, shadows = exposure(frame)
+    assert highlights == 20.0
+    assert shadows == 10.0
+    assert mean == pytest.approx((2 * 255 + 7 * 128 + 0) / 10)
