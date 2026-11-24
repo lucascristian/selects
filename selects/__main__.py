@@ -4,10 +4,11 @@ Commands:
     scan FOLDER   read every clip in FOLDER and save it to the catalog
     proxies       make an analysis proxy for every clip in the catalog
     report        print a short summary of the catalog
-    signals       print per-second sharpness and exposure next to your labels
+    signals       print per-second sharpness, exposure and camera motion next to your labels
 """
 
 import argparse
+import math
 import subprocess
 from pathlib import Path
 
@@ -85,6 +86,13 @@ def run_report(con) -> None:
         print(f"  Proxy speed: {speed}x real time")
 
 
+def show(value: float, width: int, decimals: int) -> str:
+    """Format a number for the table; unknown values (NaN) print as a dash."""
+    if math.isnan(value):
+        return f"{'-':>{width}}"
+    return f"{value:{width}.{decimals}f}"
+
+
 def describe_label(label) -> str:
     if label is None:
         return "no label"
@@ -114,7 +122,7 @@ def run_signals(con, labels_path: Path, only: str | None) -> None:
 
         print(f"\n{file_name}   {describe_label(label)}")
         print(f"  {'sec':>4}  {'sharpness (vs sharpest second)':<{BAR_WIDTH + 10}}"
-              f"{'bright':>7}{'white%':>8}{'black%':>8}")
+              f"{'bright':>7}{'white%':>8}{'black%':>8}{'motion':>8}{'shake':>7}")
         for second, value in enumerate(signals["sharpness"]):
             bar = "#" * round(BAR_WIDTH * value / top)
             in_pick = (label is not None and label.usable
@@ -123,7 +131,9 @@ def run_signals(con, labels_path: Path, only: str | None) -> None:
             print(f"  {second:3d}s  {bar:<{BAR_WIDTH}}  {value:8.1f}"
                   f"{signals['brightness'][second]:7.0f}"
                   f"{signals['highlights'][second]:8.1f}"
-                  f"{signals['shadows'][second]:8.1f}{mark}")
+                  f"{signals['shadows'][second]:8.1f}"
+                  f"{show(signals['motion'][second], 8, 0)}"
+                  f"{show(signals['shake'][second], 7, 2)}{mark}")
 
 
 def main() -> None:
