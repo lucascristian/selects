@@ -4,7 +4,17 @@ import math
 from datetime import datetime
 
 from selects.best_segment import Pick
-from selects.database import connect, save_clips, save_pick, save_signals
+from selects.database import (
+    connect,
+    load_words,
+    save_clips,
+    save_pick,
+    save_signals,
+    save_takes,
+    save_words,
+)
+from selects.takes import Take
+from selects.transcribe import Word
 
 
 def make_record(path: str, duration_s: float, is_log: bool) -> dict:
@@ -63,3 +73,18 @@ def test_signals_and_picks_are_saved(tmp_path):
     rows = con.execute("SELECT second, shake FROM signals ORDER BY second").fetchall()
     assert rows == [(0, None), (1, 0.2)]
     assert con.execute("SELECT start_s, end_s, reasons FROM picks").fetchone() == (1, 2, ["1-2 s kept"])
+
+
+def test_words_round_trip_and_silent_clips_are_remembered(tmp_path):
+    con = connect(tmp_path / "test.duckdb")
+    spoken = [Word(0.5, 0.9, "Bună", 0.9), Word(0.9, 1.2, "ziua", 0.8)]
+    save_words(con, "/clips/A.MP4", spoken, "tiny", 1.0)
+    save_words(con, "/clips/B.MP4", [], "tiny", 0.5)
+
+    transcripts = load_words(con)
+    assert transcripts["/clips/A.MP4"] == spoken
+    assert transcripts["/clips/B.MP4"] == []
+
+    take = Take("/clips/A.MP4", spoken, group=0, score=0.9, reasons=["complete 100%"])
+    save_takes(con, [take], {id(take)})
+    assert con.execute("SELECT text, best FROM takes").fetchone() == ("Bună ziua", True)

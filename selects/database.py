@@ -74,6 +74,40 @@ CREATE TABLE IF NOT EXISTS picks (
 )
 """
 
+CREATE_WORDS_TABLE = """
+CREATE TABLE IF NOT EXISTS words (
+    clip_path   VARCHAR NOT NULL,
+    position    INTEGER NOT NULL,
+    start_s     DOUBLE NOT NULL,
+    end_s       DOUBLE NOT NULL,
+    word        VARCHAR NOT NULL,
+    probability DOUBLE NOT NULL,
+    PRIMARY KEY (clip_path, position)
+)
+"""
+
+CREATE_TRANSCRIBED_TABLE = """
+CREATE TABLE IF NOT EXISTS transcribed (
+    clip_path   VARCHAR PRIMARY KEY,
+    model       VARCHAR NOT NULL,
+    seconds     DOUBLE NOT NULL
+)
+"""
+
+CREATE_TAKES_TABLE = """
+CREATE TABLE IF NOT EXISTS takes (
+    clip_path   VARCHAR NOT NULL,
+    start_s     DOUBLE NOT NULL,
+    end_s       DOUBLE NOT NULL,
+    line        INTEGER NOT NULL,
+    text        VARCHAR NOT NULL,
+    score       DOUBLE NOT NULL,
+    best        BOOLEAN NOT NULL,
+    reasons     VARCHAR[] NOT NULL,
+    PRIMARY KEY (clip_path, start_s)
+)
+"""
+
 SIGNAL_NAMES = ["sharpness", "brightness", "highlights", "shadows", "motion", "shake"]
 
 
@@ -84,6 +118,9 @@ def connect(db_path: Path | str) -> duckdb.DuckDBPyConnection:
     con.execute(CREATE_PROXIES_TABLE)
     con.execute(CREATE_SIGNALS_TABLE)
     con.execute(CREATE_PICKS_TABLE)
+    con.execute(CREATE_WORDS_TABLE)
+    con.execute(CREATE_TRANSCRIBED_TABLE)
+    con.execute(CREATE_TAKES_TABLE)
     return con
 
 
@@ -127,3 +164,51 @@ def save_pick(con: duckdb.DuckDBPyConnection, clip_path: str, pick) -> None:
         "INSERT OR REPLACE INTO picks VALUES (?, ?, ?, ?, ?)",
         [clip_path, pick.start_s, pick.end_s, pick.score, pick.reasons],
     )
+
+
+def load_signals(con: duckdb.DuckDBPyConnection, clip_path: str) -> dict[str, list[float]]:
+    """Per-second signals of one clip as saved by analyze (NULL comes back as NaN)."""
+    rows = con.execute(
+        f"SELECT {', '.join(SIGNAL_NAMES)} FROM signals WHERE clip_path = ? ORDER BY second",
+        [clip_path],
+    ).fetchall()
+    return {name: [float("nan") if row[i] is None else row[i] for row in rows]
+            for i, name in enumerate(SIGNAL_NAMES)}
+
+
+def save_words(con: duckdb.DuckDBPyConnection, clip_path: str, words: list,
+               model: str, seconds: float) -> None:
+    """Replace the transcript of one clip. An empty list records that nobody speaks."""
+    con.execute("DELETE FROM words WHERE clip_path = ?", [clip_path])
+    if words:
+        con.executemany(
+            "INSERT INTO words VALUES (?, ?, ?, ?, ?, ?)",
+            [[clip_path, i, w.start, w.end, w.text, w.probability] for i, w in enumerate(words)],
+        )
+    con.execute("INSERT OR REPLACE INTO transcribed VALUES (?, ?, ?)", [clip_path, model, seconds])
+
+
+def load_words(con: duckdb.DuckDBPyConnection) -> dict[str, list]:
+    """The transcript of every transcribed clip, as {clip path: [Word, ...]}."""
+    from selects.transcribe import Word
+
+    words: dict[str, list] = {
+        path: [] for (path,) in con.execute("SELECT clip_path FROM transcribed").fetchall()
+    }
+    rows = con.execute(
+        "SELECT clip_path, start_s, end_s, word, probability FROM words ORDER BY clip_path, position"
+    ).fetchall()
+    for clip_path, start, end, text, probability in rows:
+        words[clip_path].append(Word(start, end, text, probability))
+    return words
+
+
+def save_takes(con: duckdb.DuckDBPyConnection, takes: list, best_ids: set[int]) -> None:
+    """Replace all takes (they are grouped across clips, so they are saved together)."""
+    con.execute("DELETE FROM takes")
+    if takes:
+        con.executemany(
+            "INSERT INTO takes VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [[t.clip, t.start, t.end, t.group, t.text, t.score, id(t) in best_ids, t.reasons]
+             for t in takes],
+        )
